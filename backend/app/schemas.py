@@ -8,11 +8,19 @@ from pydantic import BaseModel, Field
 T = TypeVar("T")
 
 
+class StatCard(BaseModel):
+    """汇总卡片：和列表同一份数据算出来，保证口径一致。"""
+
+    label: str
+    value: int = 0
+
+
 class PageResult(BaseModel, Generic[T]):
     items: list[T]
     total: int
     page: int = 1
     size: int = 20
+    stats: list[StatCard] = Field(default_factory=list)
 
 
 class ActionResult(BaseModel):

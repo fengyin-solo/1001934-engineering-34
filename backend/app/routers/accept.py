@@ -26,8 +26,11 @@ def list_entries(
     """按验收单号与状态过滤验收确认列表；没有数据时返回空页，不报错。"""
     if size > 200:
         raise HTTPException(status_code=400, detail="每页最多 200 条，请缩小分页范围")
+    if status is not None and status not in STATUSES:
+        raise HTTPException(status_code=400, detail=f"验收状态只支持：{'、'.join(STATUSES)}")
     items, total = service.list_entries(keyword=keyword, status=status, page=page, size=size)
-    return PageResult(items=items, total=total, page=page, size=size)
+    stats = service.stats(keyword=keyword, status=status)
+    return PageResult(items=items, total=total, page=page, size=size, stats=stats)
 
 
 @router.get("/{entry_id}", response_model=dict)
