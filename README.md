@@ -36,14 +36,53 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 ### 前端
 
+本地开发只起前端（不强制类型检查/构建）：
+
 ```bash
 cd frontend
-npm install
+npm ci          # 或 npm install；按 package-lock.json 复现依赖
 npm run dev
 ```
 
 前端默认监听 `http://127.0.0.1:5173/`，dev server 不会自动打开浏览器，
 需要自己访问。`/api` 由 vite 代理到后端 `http://127.0.0.1:8000`。
+
+#### 类型检查与构建流水线
+
+装完依赖后一条命令跑通「类型检查 → 汇总口径测试 → 构建」：
+
+```bash
+make frontend-pipeline
+# 等价于 cd frontend && npm run typecheck && npm test && npm run build
+```
+
+- `npm run typecheck`：`vue-tsc --noEmit` 全量类型检查，只报错不写盘，
+  重复执行不会改动 `dist/`；报错格式为 `文件(行,列)`，非 0 退出，
+  验收单的验收项目/验收标准字段、状态、动作等改动写错会被直接拦下。
+- `npm test`：验收确认汇总卡片口径断言（卡片第一张恒为列表条数）。
+- `npm run build`：先跑类型检查再 `vite build`，类型不过不出产物。
+- 换台机器：`npm ci` 严格按提交的 `package-lock.json` 安装（含 rollup
+  各平台原生包），避免「我机器上能装」的问题。
+
+也可单独执行：`make frontend-typecheck`、`make frontend-test`、
+`make frontend-build`。
+
+#### 配置优先级（仓库配置优先）
+
+dev 与部署两套参数分别提交在 `frontend/.env.development`、
+`frontend/.env.production`，各环节（`vite.config.ts` 的 dev/preview/代理、
+前端代码读取的 `import.meta.env`）都只从对应仓库文件取数。shell 里同名
+`VITE_*` 变量以及未提交的本地覆盖不会生效，两套参数冲突时以仓库配置为准。
+
+| 变量 | development | production |
+| --- | --- | --- |
+| dev 监听 | `127.0.0.1:5173` | — |
+| preview 监听 | `127.0.0.1:4173` | `0.0.0.0:5173` |
+| `/api` 代理目标 | `http://127.0.0.1:8000` | `http://backend:8000` |
+
+部署镜像用多阶段 `frontend/Dockerfile`：构建阶段 `npm ci` 后 `npm run build`
+（类型检查不过则镜像构建失败），运行阶段 `vite preview --mode production`
+托管 `dist/` 并按 `.env.production` 代理到 compose 里的 `backend` 服务。
 
 ## 业务模块
 

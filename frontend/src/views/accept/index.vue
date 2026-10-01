@@ -35,7 +35,7 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="row in rows" :key="String(row.id)">
+        <tr v-for="row in rows" :key="row.id">
           <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
           <td class="row-actions">
             <button
@@ -63,23 +63,46 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 import { request } from '@/api/client'
+import { buildAcceptStats, currentMonth, type AcceptRow, type StatCard } from './stats'
 
-type Row = Record<string, string | number | null>
+/** 列表接口统一返回 { items, total, page, size }。 */
+interface AcceptListResponse {
+  items: AcceptRow[]
+  total: number
+  page: number
+  size: number
+}
+
+interface ActionResponse {
+  ok: boolean
+  message: string
+}
+
+type AcceptColumn = keyof Pick<
+  AcceptRow,
+  '验收单号' | '关联任务' | '验收项目' | '验收标准' | '验收结论' | '验收人员' | '验收日期' | '验收状态'
+>
+
+type AcceptAction = '开始验收' | '确认通过' | '下发返工'
 
 const ENDPOINT = '/api/accept'
-const columns = ["验收单号", "关联任务", "验收项目", "验收标准", "验收结论", "验收人员", "验收日期", "验收状态"]
-const actions = ["开始验收", "确认通过", "下发返工"]
-const statuses = ["待验收", "验收中", "已通过", "需返工"]
-const stats = [{"label": "待验收单据", "value": 0}, {"label": "本月通过数", "value": 0}, {"label": "需返工项数", "value": 0}]
+const columns: AcceptColumn[] = ['验收单号', '关联任务', '验收项目', '验收标准', '验收结论', '验收人员', '验收日期', '验收状态']
+const actions: AcceptAction[] = ['开始验收', '确认通过', '下发返工']
+// 后端单页上限 200；一次拉回全部匹配行，保证汇总卡片与列表同一份数据、口径一致
+const PAGE_SIZE = 200
+const month = currentMonth()
 
-const rows = ref<Row[]>([])
+const rows = ref<AcceptRow[]>([])
 const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
+
+// 汇总卡片直接从当前列表行计算，不再写死；任一筛选/动作后随列表一起刷新
+const stats = computed<StatCard[]>(() => buildAcceptStats(rows.value, month))
 
 function resetFilters() {
   filters.value = {}
@@ -94,15 +117,19 @@ function openCreate() {
   errorMessage.value = '验收单登记入口尚未接入审批流'
 }
 
-async function runAction(action: string, row: Row) {
+async function runAction(action: AcceptAction, row: AcceptRow) {
   errorMessage.value = ''
   try {
     const response = await request(`${ENDPOINT}/${row.id}/actions`, {
       method: 'POST',
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ values: { action } }),
     })
     if (!response.ok) {
       throw new Error('验收确认动作未生效，请稍后重试')
+    }
+    const result = (await response.json()) as ActionResponse
+    if (!result.ok) {
+      throw new Error(result.message || '验收确认动作未生效，请稍后重试')
     }
     await reload()
   } catch (error) {
@@ -112,13 +139,13 @@ async function runAction(action: string, row: Row) {
 
 async function reload() {
   errorMessage.value = ''
-  const query = new URLSearchParams(filters.value as Record<string, string>).toString()
+  const query = new URLSearchParams({ page: '1', size: String(PAGE_SIZE), ...filters.value }).toString()
   try {
     const response = await request(`${ENDPOINT}?${query}`)
     if (!response.ok) {
       throw new Error('验收单列表读取失败')
     }
-    const payload = await response.json()
+    const payload = (await response.json()) as AcceptListResponse
     rows.value = payload.items ?? []
     total.value = payload.total ?? rows.value.length
   } catch (error) {

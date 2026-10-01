@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "vue-tsc --noEmit --pretty false && vite build",
     "preview": "vite preview",
-    "typecheck": "vue-tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit --pretty false",
+    "test": "node scripts/accept-stats.test.mjs"
   },
   "dependencies": {
     "pinia": "^2.1.7",

@@ -1,33 +1,55 @@
 import { fileURLToPath, URL } from 'node:url'
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
-// 后端地址默认取本文件里写的端口，起服务时可以用 VITE_PROXY_TARGET 覆盖，
-// 这样换端口调试或做启动探针时前端不用改代码。
-const proxyTarget = process.env.VITE_PROXY_TARGET ?? 'http://127.0.0.1:8000'
+// 参数一律以仓库里提交的 .env.<mode> 为准（本地开发与部署两套参数冲突时，
+// 仓库配置优先于 shell 环境变量与未提交的本地覆盖文件）：先剔掉 shell 里
+// 同名的 VITE_* 变量，再只从仓库 env 文件读取，避免外部环境污染取数。
+function loadRepoEnv(mode: string, root: string): Record<string, string> {
+  for (const key of Object.keys(process.env)) {
+    if (key.startsWith('VITE_')) {
+      delete process.env[key]
+    }
+  }
+  return loadEnv(mode, root, 'VITE_')
+}
 
-export default defineConfig({
-  plugins: [vue()],
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
+export default defineConfig(({ mode }) => {
+  const env = loadRepoEnv(mode, process.cwd())
+
+  // dev 与 preview 共用同一个后端代理目标，各自的监听地址/端口按模式取仓库配置
+  const proxyTarget = env.VITE_PROXY_TARGET ?? 'http://127.0.0.1:8000'
+  const apiProxy = {
+    '/api': {
+      target: proxyTarget,
+      changeOrigin: true,
     },
-  },
-  server: {
-    host: '127.0.0.1',
-    port: 5173,
-    // 关掉自动打开页面：起服务时只打印地址，不拉起浏览器
-    open: false,
-    strictPort: false,
-    proxy: {
-      '/api': {
-        target: proxyTarget,
-        changeOrigin: true,
+  }
+
+  return {
+    plugins: [vue()],
+    resolve: {
+      alias: {
+        '@': fileURLToPath(new URL('./src', import.meta.url)),
       },
     },
-  },
-  build: {
-    outDir: 'dist',
-    sourcemap: false,
-  },
+    server: {
+      host: env.VITE_DEV_HOST ?? '127.0.0.1',
+      port: Number(env.VITE_DEV_PORT ?? 5173),
+      // 关掉自动打开页面：起服务时只打印地址，不拉起浏览器
+      open: false,
+      strictPort: false,
+      proxy: apiProxy,
+    },
+    preview: {
+      host: env.VITE_PREVIEW_HOST ?? '127.0.0.1',
+      port: Number(env.VITE_PREVIEW_PORT ?? 4173),
+      strictPort: true,
+      proxy: apiProxy,
+    },
+    build: {
+      outDir: 'dist',
+      sourcemap: false,
+    },
+  }
 })
